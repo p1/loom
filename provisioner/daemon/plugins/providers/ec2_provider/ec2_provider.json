@@ -1,0 +1,6 @@
+{
+  "ec2" : {
+    "classname": "Ec2Provider"
+  }
+}
+
