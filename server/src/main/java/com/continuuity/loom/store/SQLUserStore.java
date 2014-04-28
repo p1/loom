@@ -88,7 +88,7 @@ public class SQLUserStore extends BaseDBStore implements UserStore {
       } else {
         writeStatement = conn.prepareStatement("INSERT INTO profiles (profile, id) VALUES (?, ?)");
       }
-      writeStatement.setBlob(1, new ByteArrayInputStream(codec.serialize(profile, Profile.class)));
+      writeStatement.setBlob(1, new ByteArrayInputStream(CODEC.serialize(profile, Profile.class)));
       writeStatement.setString(2, profile.getId());
       // perform the update or insert
       try {

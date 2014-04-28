@@ -39,7 +39,7 @@ import java.util.Set;
  * Base class for database backed stores with some common utility methods.
  */
 public class BaseDBStore {
-  private final JsonSerde codec = new JsonSerde();
+  protected final JsonSerde CODEC = new JsonSerde();
   protected final DBConnectionPool dbConnectionPool;
 
   public BaseDBStore(DBConnectionPool dbConnectionPool) {
@@ -170,7 +170,7 @@ public class BaseDBStore {
     Reader reader = new InputStreamReader(blob.getBinaryStream(), Charsets.UTF_8);
     T object;
     try {
-      object = codec.deserialize(reader, clazz);
+      object = CODEC.deserialize(reader, clazz);
     } finally {
       Closeables.closeQuietly(reader);
     }
