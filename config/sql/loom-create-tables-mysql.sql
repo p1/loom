@@ -94,3 +94,9 @@ CREATE TABLE IF NOT EXISTS clusterTemplates (
     clusterTemplate MEDIUMBLOB,
     PRIMARY KEY (name)
 ) ENGINE = InnoDB;
+
+CREATE TABLE IF NOT EXISTS profiles (
+    id VARCHAR(255),
+    profile MEDIUMBLOB,
+    PRIMARY KEY (id)
+) ENGINE = InnoDB;
