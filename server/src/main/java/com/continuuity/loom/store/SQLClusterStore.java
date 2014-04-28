@@ -24,14 +24,7 @@ import com.continuuity.loom.scheduler.task.ClusterTask;
 import com.continuuity.loom.scheduler.task.JobId;
 import com.continuuity.loom.scheduler.task.TaskException;
 import com.continuuity.loom.scheduler.task.TaskId;
-import com.google.common.base.Charsets;
-import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import com.google.common.io.Closeables;
 import com.google.inject.Inject;
 import com.google.inject.name.Named;
 import org.apache.twill.zookeeper.ZKClient;
@@ -39,8 +32,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
 import java.sql.Blob;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -58,8 +49,6 @@ import java.util.Set;
 public class SQLClusterStore extends BaseClusterStore {
   private static final Logger LOG  = LoggerFactory.getLogger(SQLClusterStore.class);
   private static final JsonSerde codec = new JsonSerde();
-
-  private final DBConnectionPool dbConnectionPool;
 
   // for unit tests only.  Truncate is not supported in derby.
   public void clearData() throws SQLException {
@@ -86,8 +75,7 @@ public class SQLClusterStore extends BaseClusterStore {
   SQLClusterStore(ZKClient zkClient, DBConnectionPool dbConnectionPool,
                   @Named(Constants.ID_START_NUM) long startId,
                   @Named(Constants.ID_INCREMENT_BY) long incrementBy) throws SQLException, ClassNotFoundException {
-    super(zkClient, startId, incrementBy);
-    this.dbConnectionPool = dbConnectionPool;
+    super(zkClient, startId, incrementBy, dbConnectionPool);
 
     if (dbConnectionPool.isEmbeddedDerbyDB()) {
       initDerbyDB();
@@ -104,25 +92,6 @@ public class SQLClusterStore extends BaseClusterStore {
     createDerbyTable("CREATE TABLE tasks ( cluster_id BIGINT, job_num BIGINT, task_num BIGINT, submit_time TIMESTAMP,"
                        + " status_time TIMESTAMP, status VARCHAR(32), task BLOB )");
     createDerbyTable("CREATE TABLE nodes ( cluster_id BIGINT, id VARCHAR(64), node BLOB )");
-  }
-
-  private void createDerbyTable(String createString) throws SQLException {
-    Connection conn = dbConnectionPool.getConnection();
-    try {
-      Statement statement = conn.createStatement();
-      try {
-        statement.executeUpdate(createString);
-      } catch (SQLException e) {
-        // code for the table already exists in derby.
-        if (!e.getSQLState().equals("X0Y32")) {
-          throw Throwables.propagate(e);
-        }
-      } finally {
-        statement.close();
-      }
-    } finally {
-      conn.close();
-    }
   }
 
   @Override
@@ -237,42 +206,33 @@ public class SQLClusterStore extends BaseClusterStore {
       PreparedStatement checkStatement = conn.prepareStatement("SELECT id FROM clusters WHERE id=?");
       checkStatement.setLong(1, clusterNum);
       PreparedStatement writeStatement;
+      if (hasResults(checkStatement)) {
+        // cluster exists already, perform an update.
+        writeStatement = conn.prepareStatement(
+          "UPDATE clusters SET cluster=?, owner_id=?, status=?, expire_time = ? WHERE id=?");
+        writeStatement.setBlob(1, new ByteArrayInputStream(codec.serialize(cluster, Cluster.class)));
+        writeStatement.setString(2, cluster.getOwnerId());
+        writeStatement.setString(3, cluster.getStatus().name());
+        writeStatement.setTimestamp(4, getTimestamp(cluster.getExpireTime()));
+        writeStatement.setLong(5, clusterNum);
+      } else {
+        // cluster does not exist, perform an insert.
+        writeStatement = conn.prepareStatement(
+          "INSERT INTO clusters (id, owner_id, NAME, create_time, expire_time, status, cluster) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?)");
+        writeStatement.setLong(1, clusterNum);
+        writeStatement.setString(2, cluster.getOwnerId());
+        writeStatement.setString(3, cluster.getName());
+        writeStatement.setTimestamp(4, getTimestamp(cluster.getCreateTime()));
+        writeStatement.setTimestamp(5, getTimestamp(cluster.getExpireTime()));
+        writeStatement.setString(6, cluster.getStatus().name());
+        writeStatement.setBlob(7, new ByteArrayInputStream(codec.serialize(cluster, Cluster.class)));
+      }
+      // perform the update or insert
       try {
-        ResultSet rs = checkStatement.executeQuery();
-        try {
-          if (rs.next()) {
-            // cluster exists already, perform an update.
-            writeStatement = conn.prepareStatement(
-              "UPDATE clusters SET cluster=?, owner_id=?, status=?, expire_time = ? WHERE id=?");
-            writeStatement.setBlob(1, new ByteArrayInputStream(codec.serialize(cluster, Cluster.class)));
-            writeStatement.setString(2, cluster.getOwnerId());
-            writeStatement.setString(3, cluster.getStatus().name());
-            writeStatement.setTimestamp(4, getTimestamp(cluster.getExpireTime()));
-            writeStatement.setLong(5, clusterNum);
-          } else {
-            // cluster does not exist, perform an insert.
-            writeStatement = conn.prepareStatement(
-              "INSERT INTO clusters (id, owner_id, NAME, create_time, expire_time, status, cluster) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?)");
-            writeStatement.setLong(1, clusterNum);
-            writeStatement.setString(2, cluster.getOwnerId());
-            writeStatement.setString(3, cluster.getName());
-            writeStatement.setTimestamp(4, getTimestamp(cluster.getCreateTime()));
-            writeStatement.setTimestamp(5, getTimestamp(cluster.getExpireTime()));
-            writeStatement.setString(6, cluster.getStatus().name());
-            writeStatement.setBlob(7, new ByteArrayInputStream(codec.serialize(cluster, Cluster.class)));
-          }
-        } finally {
-          rs.close();
-        }
-        // perform the update or insert
-        try {
-          writeStatement.executeUpdate();
-        } finally {
-          writeStatement.close();
-        }
+        writeStatement.executeUpdate();
       } finally {
-        checkStatement.close();
+        writeStatement.close();
       }
     } finally {
       conn.close();
@@ -444,38 +404,29 @@ public class SQLClusterStore extends BaseClusterStore {
         checkStatement.setLong(1, jobId.getJobNum());
         checkStatement.setLong(2, Long.parseLong(jobId.getClusterId()));
         PreparedStatement writeStatement;
+        if (hasResults(checkStatement)) {
+          // cluster exists already, perform an update.
+          writeStatement =
+            conn.prepareStatement("UPDATE jobs SET job=?, status=? WHERE job_num=? AND cluster_id=?");
+          writeStatement.setBlob(1, new ByteArrayInputStream(codec.serialize(clusterJob, ClusterJob.class)));
+          writeStatement.setString(2, clusterJob.getJobStatus().name());
+          writeStatement.setLong(3, jobId.getJobNum());
+          writeStatement.setLong(4, clusterId);
+        } else {
+          // cluster does not exist, perform an insert.
+          writeStatement = conn.prepareStatement(
+            "INSERT INTO jobs (job_num, cluster_id, status, create_time, job) VALUES (?, ?, ?, ?, ?)");
+          writeStatement.setLong(1, jobId.getJobNum());
+          writeStatement.setLong(2, clusterId);
+          writeStatement.setString(3, clusterJob.getJobStatus().name());
+          writeStatement.setTimestamp(4, getTimestamp(System.currentTimeMillis()));
+          writeStatement.setBlob(5, new ByteArrayInputStream(codec.serialize(clusterJob, ClusterJob.class)));
+        }
+        // perform the update or insert
         try {
-          ResultSet rs = checkStatement.executeQuery();
-          try {
-            if (rs.next()) {
-              // cluster exists already, perform an update.
-              writeStatement =
-                conn.prepareStatement("UPDATE jobs SET job=?, status=? WHERE job_num=? AND cluster_id=?");
-              writeStatement.setBlob(1, new ByteArrayInputStream(codec.serialize(clusterJob, ClusterJob.class)));
-              writeStatement.setString(2, clusterJob.getJobStatus().name());
-              writeStatement.setLong(3, jobId.getJobNum());
-              writeStatement.setLong(4, clusterId);
-            } else {
-              // cluster does not exist, perform an insert.
-              writeStatement = conn.prepareStatement(
-                "INSERT INTO jobs (job_num, cluster_id, status, create_time, job) VALUES (?, ?, ?, ?, ?)");
-              writeStatement.setLong(1, jobId.getJobNum());
-              writeStatement.setLong(2, clusterId);
-              writeStatement.setString(3, clusterJob.getJobStatus().name());
-              writeStatement.setTimestamp(4, getTimestamp(System.currentTimeMillis()));
-              writeStatement.setBlob(5, new ByteArrayInputStream(codec.serialize(clusterJob, ClusterJob.class)));
-            }
-          } finally {
-            rs.close();
-          }
-          // perform the update or insert
-          try {
-            writeStatement.executeUpdate();
-          } finally {
-            writeStatement.close();
-          }
+          writeStatement.executeUpdate();
         } finally {
-          checkStatement.close();
+          writeStatement.close();
         }
       } finally {
         conn.close();
@@ -543,44 +494,35 @@ public class SQLClusterStore extends BaseClusterStore {
         checkStatement.setLong(2, taskId.getJobNum());
         checkStatement.setLong(3, clusterId);
         PreparedStatement writeStatement;
+        if (hasResults(checkStatement)) {
+          // task exists already, perform an update.
+          writeStatement = conn.prepareStatement(
+            "UPDATE tasks SET task=?, status=?, submit_time=?, status_time=?" +
+              " WHERE task_num=? AND job_num=? AND cluster_id=?");
+          writeStatement.setBlob(1, new ByteArrayInputStream(codec.serialize(clusterTask, ClusterTask.class)));
+          writeStatement.setString(2, clusterTask.getStatus().name());
+          writeStatement.setTimestamp(3, getTimestamp(clusterTask.getSubmitTime()));
+          writeStatement.setTimestamp(4, getTimestamp(clusterTask.getStatusTime()));
+          writeStatement.setLong(5, taskId.getTaskNum());
+          writeStatement.setLong(6, taskId.getJobNum());
+          writeStatement.setLong(7, clusterId);
+        } else {
+          // task does not exist, perform an insert.
+          writeStatement = conn.prepareStatement(
+            "INSERT INTO tasks (task_num, job_num, cluster_id, status, submit_time, task)" +
+              " VALUES (?, ?, ?, ?, ?, ?)");
+          writeStatement.setLong(1, taskId.getTaskNum());
+          writeStatement.setLong(2, taskId.getJobNum());
+          writeStatement.setLong(3, clusterId);
+          writeStatement.setString(4, clusterTask.getStatus().name());
+          writeStatement.setTimestamp(5, getTimestamp(clusterTask.getSubmitTime()));
+          writeStatement.setBlob(6, new ByteArrayInputStream(codec.serialize(clusterTask, ClusterTask.class)));
+        }
+        // perform the update or insert
         try {
-          ResultSet rs = checkStatement.executeQuery();
-          try {
-            if (rs.next()) {
-              // task exists already, perform an update.
-              writeStatement = conn.prepareStatement(
-                "UPDATE tasks SET task=?, status=?, submit_time=?, status_time=?" +
-                  " WHERE task_num=? AND job_num=? AND cluster_id=?");
-              writeStatement.setBlob(1, new ByteArrayInputStream(codec.serialize(clusterTask, ClusterTask.class)));
-              writeStatement.setString(2, clusterTask.getStatus().name());
-              writeStatement.setTimestamp(3, getTimestamp(clusterTask.getSubmitTime()));
-              writeStatement.setTimestamp(4, getTimestamp(clusterTask.getStatusTime()));
-              writeStatement.setLong(5, taskId.getTaskNum());
-              writeStatement.setLong(6, taskId.getJobNum());
-              writeStatement.setLong(7, clusterId);
-            } else {
-              // task does not exist, perform an insert.
-              writeStatement = conn.prepareStatement(
-                "INSERT INTO tasks (task_num, job_num, cluster_id, status, submit_time, task)" +
-                  " VALUES (?, ?, ?, ?, ?, ?)");
-              writeStatement.setLong(1, taskId.getTaskNum());
-              writeStatement.setLong(2, taskId.getJobNum());
-              writeStatement.setLong(3, clusterId);
-              writeStatement.setString(4, clusterTask.getStatus().name());
-              writeStatement.setTimestamp(5, getTimestamp(clusterTask.getSubmitTime()));
-              writeStatement.setBlob(6, new ByteArrayInputStream(codec.serialize(clusterTask, ClusterTask.class)));
-            }
-          } finally {
-            rs.close();
-          }
-          // perform the update or insert
-          try {
-            writeStatement.executeUpdate();
-          } finally {
-            writeStatement.close();
-          }
+          writeStatement.executeUpdate();
         } finally {
-          checkStatement.close();
+          writeStatement.close();
         }
       } finally {
         conn.close();
@@ -638,33 +580,24 @@ public class SQLClusterStore extends BaseClusterStore {
       PreparedStatement checkStatement = conn.prepareStatement("SELECT id FROM nodes WHERE id=?");
       checkStatement.setString(1, node.getId());
       PreparedStatement writeStatement;
+      if (hasResults(checkStatement)) {
+        // node exists already, perform an update.
+        writeStatement = conn.prepareStatement("UPDATE nodes SET node=? WHERE id=?");
+        writeStatement.setBlob(1, new ByteArrayInputStream(codec.serialize(node, Node.class)));
+        writeStatement.setString(2, node.getId());
+      } else {
+        // node does not exist, perform an insert.
+        writeStatement = conn.prepareStatement(
+          "INSERT INTO nodes (id, cluster_id, node) VALUES (?, ?, ?)");
+        writeStatement.setString(1, node.getId());
+        writeStatement.setLong(2, Long.parseLong(node.getClusterId()));
+        writeStatement.setBlob(3, new ByteArrayInputStream(codec.serialize(node, Node.class)));
+      }
+      // perform the update or insert
       try {
-        ResultSet rs = checkStatement.executeQuery();
-        try {
-          if (rs.next()) {
-            // node exists already, perform an update.
-            writeStatement = conn.prepareStatement("UPDATE nodes SET node=? WHERE id=?");
-            writeStatement.setBlob(1, new ByteArrayInputStream(codec.serialize(node, Node.class)));
-            writeStatement.setString(2, node.getId());
-          } else {
-            // node does not exist, perform an insert.
-            writeStatement = conn.prepareStatement(
-              "INSERT INTO nodes (id, cluster_id, node) VALUES (?, ?, ?)");
-            writeStatement.setString(1, node.getId());
-            writeStatement.setLong(2, Long.parseLong(node.getClusterId()));
-            writeStatement.setBlob(3, new ByteArrayInputStream(codec.serialize(node, Node.class)));
-          }
-        } finally {
-          rs.close();
-        }
-        // perform the update or insert
-        try {
-          writeStatement.executeUpdate();
-        } finally {
-          writeStatement.close();
-        }
+        writeStatement.executeUpdate();
       } finally {
-        checkStatement.close();
+        writeStatement.close();
       }
     } finally {
       conn.close();
@@ -756,118 +689,6 @@ public class SQLClusterStore extends BaseClusterStore {
     } finally {
       conn.close();
     }
-  }
-
-  /**
-   * Queries the store for a set of items, deserializing the items and returning an immutable set of them. If no items
-   * exist, the set will be empty.
-   *
-   * @param statement PreparedStatement of the query, ready for execution. Will be closed by this method.
-   * @param clazz Class of the items being queried.
-   * @param <T> Type of the items being queried.
-   * @return
-   * @throws SQLException
-   */
-  private <T> ImmutableSet<T> getQuerySet(PreparedStatement statement, Class<T> clazz) throws SQLException {
-    try {
-      ResultSet rs = statement.executeQuery();
-      try {
-        Set<T> results = Sets.newHashSet();
-        while (rs.next()) {
-          Blob blob = rs.getBlob(1);
-          results.add(deserializeBlob(blob, clazz));
-        }
-        return ImmutableSet.copyOf(results);
-      } finally {
-        rs.close();
-      }
-    } finally {
-      statement.close();
-    }
-  }
-
-
-  private <T> ImmutableList<T> getQueryList(PreparedStatement statement, Class<T> clazz) throws SQLException {
-    return getQueryList(statement, clazz, Integer.MAX_VALUE);
-  }
-
-  /**
-   * Queries the store for a list of items, deserializing the items and returning an immutable list of them. If no items
-   * exist, the list will be empty.
-   *
-   * @param statement PreparedStatement of the query, ready for execution.
-   * @param clazz Class of the items being queried.
-   * @param <T> Type of the items being queried.
-   * @param limit Max number of items to get.
-   * @return
-   * @throws SQLException
-   */
-  private <T> ImmutableList<T> getQueryList(PreparedStatement statement, Class<T> clazz, int limit)
-    throws SQLException {
-    ResultSet rs = statement.executeQuery();
-    try {
-      List<T> results = Lists.newArrayList();
-      int numResults = 0;
-      int actualLimit = limit < 0 ? Integer.MAX_VALUE : limit;
-      while (rs.next() && numResults < actualLimit) {
-        Blob blob = rs.getBlob(1);
-        results.add(deserializeBlob(blob, clazz));
-        numResults++;
-      }
-      return ImmutableList.copyOf(results);
-    } finally {
-      rs.close();
-    }
-  }
-
-  /**
-   * Queries the store for a single item, deserializing the item and returning it or null if the item does not exist.
-   *
-   * @param statement PreparedStatement of the query, ready for execution.
-   * @param clazz Class of the item being queried.
-   * @param <T> Type of the item being queried.
-   * @return
-   * @throws SQLException
-   */
-  private <T> T getQueryItem(PreparedStatement statement, Class<T> clazz) throws SQLException {
-    ResultSet rs = statement.executeQuery();
-    try {
-      if (rs.next()) {
-        Blob blob = rs.getBlob(1);
-        return deserializeBlob(blob, clazz);
-      } else {
-        return null;
-      }
-    } finally {
-      rs.close();
-    }
-  }
-
-  /**
-   * Performs the query and returns whether or not there are results.
-   *
-   * @param statement PreparedStatement of the query, ready for execution.
-   * @return True if the query has results, false if not.
-   * @throws SQLException
-   */
-  private boolean hasResults(PreparedStatement statement) throws SQLException {
-    ResultSet rs = statement.executeQuery();
-    try {
-      return rs.next();
-    } finally {
-      rs.close();
-    }
-  }
-
-  private <T> T deserializeBlob(Blob blob, Class<T> clazz) throws SQLException {
-    Reader reader = new InputStreamReader(blob.getBinaryStream(), Charsets.UTF_8);
-    T object;
-    try {
-      object = codec.deserialize(reader, clazz);
-    } finally {
-      Closeables.closeQuietly(reader);
-    }
-    return object;
   }
 
   // mysql will error if you give it a timestamp of 0...

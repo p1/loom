@@ -28,7 +28,7 @@ import org.apache.zookeeper.data.Stat;
 /**
  * Store that uses Zookeeper for creating new unique ids.
  */
-public abstract class BaseClusterStore implements ClusterStore {
+public abstract class BaseClusterStore extends BaseDBStore implements ClusterStore {
   private static final String IDS_BASEPATH = "/ids";
   private static final String JOB_IDS_PATH = IDS_BASEPATH + "/jobs";
   private static final String TASK_IDS_PATH = IDS_BASEPATH + "/tasks";
@@ -40,7 +40,8 @@ public abstract class BaseClusterStore implements ClusterStore {
 
   private final ZKClient zkClient;
 
-  BaseClusterStore(final ZKClient zkClient, long startId, long incrementBy) {
+  BaseClusterStore(final ZKClient zkClient, long startId, long incrementBy, DBConnectionPool connectionPool) {
+    super(connectionPool);
     this.zkClient = zkClient;
     this.startId = startId;
     this.incrementBy = incrementBy;

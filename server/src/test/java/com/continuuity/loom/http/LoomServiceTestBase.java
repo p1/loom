@@ -21,6 +21,7 @@ import com.continuuity.loom.conf.Constants;
 import com.continuuity.loom.scheduler.JobScheduler;
 import com.continuuity.loom.scheduler.Scheduler;
 import com.continuuity.loom.store.ClusterStore;
+import com.continuuity.loom.store.UserStore;
 import com.google.inject.Key;
 import com.google.inject.name.Names;
 import org.apache.http.Header;

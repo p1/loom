@@ -17,12 +17,10 @@ package com.continuuity.loom.store;
 
 import com.continuuity.loom.conf.Configuration;
 import com.continuuity.loom.conf.Constants;
-import com.google.common.base.Throwables;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 
-import java.sql.DriverManager;
 import java.sql.SQLException;
 
 /**
@@ -50,13 +48,6 @@ public class SQLEntityStoreTest extends EntityStoreTest {
 
   @AfterClass
   public static void afterClass() {
-    try {
-      DriverManager.getConnection("jdbc:derby:memory:loom;drop=true");
-    } catch (SQLException e) {
-      // this is normal when a drop happens
-      if (!e.getSQLState().equals("08006") ) {
-        Throwables.propagate(e);
-      }
-    }
+    DerbyTestHelper.dropTables();
   }
 }

@@ -21,6 +21,8 @@ import com.continuuity.loom.conf.Constants;
 import com.continuuity.loom.guice.LoomModules;
 import com.continuuity.loom.store.ClusterStore;
 import com.continuuity.loom.store.SQLClusterStore;
+import com.continuuity.loom.store.SQLUserStore;
+import com.continuuity.loom.store.UserStore;
 import org.apache.twill.internal.zookeeper.InMemoryZKServer;
 import org.apache.twill.zookeeper.ZKClientService;
 import com.google.common.base.Throwables;
@@ -42,11 +44,13 @@ import java.sql.SQLException;
 public class BaseTest {
   private static InMemoryZKServer zkServer;
   private static SQLClusterStore sqlClusterStore;
+  private static SQLUserStore sqlUserStore;
   protected static final String HOSTNAME = "127.0.0.1";
   protected static Injector injector;
   protected static ZKClientService zkClientService;
   protected static EntityStore entityStore;
   protected static ClusterStore clusterStore;
+  protected static UserStore userStore;
   protected static Configuration conf;
 
   @ClassRule
@@ -76,6 +80,8 @@ public class BaseTest {
     sqlClusterStore.initialize();
     sqlClusterStore.initDerbyDB();
     clusterStore = sqlClusterStore;
+    sqlUserStore = injector.getInstance(SQLUserStore.class);
+    userStore = sqlUserStore;
   }
 
   @AfterClass
@@ -95,5 +101,6 @@ public class BaseTest {
   @Before
   public void setupBaseTest() throws SQLException {
     sqlClusterStore.clearData();
+    sqlUserStore.clearData();
   }
 }

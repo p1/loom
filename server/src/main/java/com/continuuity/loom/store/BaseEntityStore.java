@@ -29,7 +29,7 @@ import java.util.Collection;
 /**
  * Abstract {@link EntityStore} that represents entities as json.
  */
-public abstract class BaseEntityStore implements EntityStore {
+public abstract class BaseEntityStore extends BaseDBStore implements EntityStore {
   private static final JsonSerde codec = new JsonSerde();
   private static final Function<byte[], Provider> PROVIDER_TRANSFORM =
     new Function<byte[], Provider>() {
@@ -71,6 +71,10 @@ public abstract class BaseEntityStore implements EntityStore {
         return codec.deserialize(input, ClusterTemplate.class);
       }
     };
+
+  public BaseEntityStore(DBConnectionPool dbConnectionPool) {
+    super(dbConnectionPool);
+  }
 
   /**
    * Types of entities.

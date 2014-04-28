@@ -26,6 +26,7 @@ import com.continuuity.loom.http.LoomClusterHandler;
 import com.continuuity.loom.http.LoomRPCHandler;
 import com.continuuity.loom.http.LoomStatusHandler;
 import com.continuuity.loom.http.LoomTaskHandler;
+import com.continuuity.loom.http.LoomUserHandler;
 import com.continuuity.loom.management.LoomStats;
 import com.continuuity.loom.scheduler.ClusterScheduler;
 import com.continuuity.loom.scheduler.JobScheduler;
@@ -36,6 +37,8 @@ import com.continuuity.loom.store.DBConnectionPool;
 import com.continuuity.loom.store.EntityStore;
 import com.continuuity.loom.store.SQLClusterStore;
 import com.continuuity.loom.store.SQLEntityStore;
+import com.continuuity.loom.store.SQLUserStore;
+import com.continuuity.loom.store.UserStore;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.inject.AbstractModule;
@@ -141,6 +144,7 @@ public final class LoomModules {
 
           bind(EntityStore.class).to(SQLEntityStore.class).in(Scopes.SINGLETON);
           bind(ClusterStore.class).to(SQLClusterStore.class).in(Scopes.SINGLETON);
+          bind(UserStore.class).to(SQLUserStore.class).in(Scopes.SINGLETON);
           bind(ZKClient.class).toInstance(zkClient);
           bind(Integer.class)
             .annotatedWith(Names.named("loom.port")).toInstance(port);
@@ -193,6 +197,7 @@ public final class LoomModules {
           handlerBinder.addBinding().to(LoomTaskHandler.class);
           handlerBinder.addBinding().to(LoomStatusHandler.class);
           handlerBinder.addBinding().to(LoomRPCHandler.class);
+          handlerBinder.addBinding().to(LoomUserHandler.class);
         }
       };
   }

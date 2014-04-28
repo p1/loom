@@ -17,55 +17,36 @@ package com.continuuity.loom.store;
 
 import com.continuuity.loom.conf.Configuration;
 import com.continuuity.loom.conf.Constants;
-import org.apache.twill.internal.zookeeper.InMemoryZKServer;
-import org.apache.twill.zookeeper.ZKClientService;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.ClassRule;
-import org.junit.rules.TemporaryFolder;
 
-import java.io.IOException;
 import java.sql.SQLException;
 
 /**
  *
  */
-public class SQLClusterStoreTest extends ClusterStoreTest {
-  @ClassRule
-  public static TemporaryFolder tmpFolder = new TemporaryFolder();
-  private static InMemoryZKServer zkServer;
-  private static ZKClientService zkClient;
-  private static SQLClusterStore clusterStore;
+public class SQLUserStoreTest extends UserStoreTest {
+  private static SQLUserStore sqlStore;
 
   @BeforeClass
-  public static void beforeClass() throws SQLException, ClassNotFoundException, IOException {
-    zkServer = InMemoryZKServer.builder().setDataDir(tmpFolder.newFolder()).setTickTime(1000).build();
-    zkServer.startAndWait();
-
-    zkClient = ZKClientService.Builder.of(zkServer.getConnectionStr()).build();
-    zkClient.startAndWait();
-
+  public static void beforeClass() throws SQLException, ClassNotFoundException {
     Configuration sqlConf = new Configuration();
     sqlConf.set(Constants.JDBC_DRIVER, "org.apache.derby.jdbc.EmbeddedDriver");
     sqlConf.set(Constants.JDBC_CONNECTION_STRING, "jdbc:derby:memory:loom;create=true");
     DBConnectionPool dbConnectionPool = new DBConnectionPool(sqlConf);
-    clusterStore = new SQLClusterStore(zkClient, dbConnectionPool, 1, 1);
-    clusterStore.initialize();
-    clusterStore.initDerbyDB();
-    store = clusterStore;
-    clusterStore.clearData();
+    sqlStore = new SQLUserStore(dbConnectionPool);
+    sqlStore.clearData();
+    userStore = sqlStore;
   }
 
   @Before
   public void before() throws SQLException {
-    clusterStore.clearData();
+    sqlStore.clearData();
   }
 
   @AfterClass
   public static void afterClass() {
-    zkClient.stopAndWait();
-    zkServer.stopAndWait();
     DerbyTestHelper.dropTables();
   }
 }

@@ -36,7 +36,6 @@ import java.util.List;
  */
 public class SQLEntityStore extends BaseEntityStore {
   private static final Logger LOG  = LoggerFactory.getLogger(SQLEntityStore.class);
-  private final DBConnectionPool dbConnectionPool;
 
   // for unit tests only.  Truncate is not supported in derby.
   public void clearData() throws SQLException {
@@ -63,8 +62,7 @@ public class SQLEntityStore extends BaseEntityStore {
 
   @Inject
   SQLEntityStore(DBConnectionPool dbConnectionPool) throws SQLException {
-    super();
-    this.dbConnectionPool = dbConnectionPool;
+    super(dbConnectionPool);
     if (dbConnectionPool.isEmbeddedDerbyDB()) {
       initDerbyDB();
     }
@@ -80,25 +78,6 @@ public class SQLEntityStore extends BaseEntityStore {
     createDerbyTable("CREATE TABLE clusterTemplates ( name VARCHAR(255), clusterTemplate BLOB )");
   }
 
-  private void createDerbyTable(String createString) throws SQLException {
-    Connection conn = dbConnectionPool.getConnection();
-    try {
-      Statement statement = conn.createStatement();
-      try {
-        statement.executeUpdate(createString);
-      } catch (SQLException e) {
-        // code for the table already exists in derby.
-        if (!e.getSQLState().equals("X0Y32")) {
-          throw Throwables.propagate(e);
-        }
-      } finally {
-        statement.close();
-      }
-    } finally {
-      conn.close();
-    }
-  }
-
   @Override
   protected void writeEntity(EntityType entityType, String entityName, byte[] data) throws Exception {
     // sticking with standard sql... this could be done in one step with replace, or with
@@ -108,27 +87,18 @@ public class SQLEntityStore extends BaseEntityStore {
       // table name doesn't come from the user, ok to insert here
       PreparedStatement checkStatement = getSelectStatement(conn, entityType, entityName);
       PreparedStatement writeStatement;
+      if (hasResults(checkStatement)) {
+        // entity exists already, perform an update.
+        writeStatement = getUpdateStatement(conn, entityType, entityName, data);
+      } else {
+        // entity does not exist, perform an insert.
+        writeStatement = getInsertStatement(conn, entityType, entityName, data);
+      }
+      // perform the update or insert
       try {
-        ResultSet rs = checkStatement.executeQuery();
-        try {
-          if (rs.next()) {
-            // entity exists already, perform an update.
-            writeStatement = getUpdateStatement(conn, entityType, entityName, data);
-          } else {
-            // entity does not exist, perform an insert.
-            writeStatement = getInsertStatement(conn, entityType, entityName, data);
-          }
-        } finally {
-          rs.close();
-        }
-        // perform the update or insert
-        try {
-          writeStatement.executeUpdate();
-        } finally {
-          writeStatement.close();
-        }
+        writeStatement.executeUpdate();
       } finally {
-        checkStatement.close();
+        writeStatement.close();
       }
     } finally {
       conn.close();
