@@ -17,9 +17,10 @@
 
 .. index::
    single: REST API: Templates
-==================
+
+===========================
 REST API: Cluster Templates
-==================
+===========================
 
 .. include:: /rest/rest-links.rst
 
@@ -31,7 +32,7 @@ cluster-wide hardware and image type. Finally, a set of constraints are defined 
 
 
 Cluster Template Details
-=================
+========================
 
 Each cluster template configured in the system has a unique name, a short description, and a section devoted to compatibilities, defaults, and constraints.
 
@@ -78,6 +79,7 @@ The defaults section describes what will be used to create a cluster if the user
 this section can be overwritten by the user, though it is likely only advanced users will want to do so.  Templates must contain a set of default services, a default provider, and a 
 default config.  Optionally, a hardware type to use across the entire cluster, and an image type to use across the entire cluster, may be specified.  The default services must be a subset 
 of the services defined in the compatibility section.  Similarly, if a hardwaretype or imagetype is specified, it must be one of the types given in the compatibility section.  
+A default DNS suffix can also be provided for suggested hostnames. If none is specified, the Server will use "local" as the DNS suffix.
 Lastly, the config is a JSON Object that gets passed straight through to provisioners, usually describing different configuration settings for the services that will be placed on the cluster. 
 
 Example Default Section
@@ -94,6 +96,7 @@ Example Default Section
         "provider": "rackspace",
         "hardwaretype": "medium",
         "imagetype": "ubuntu12",
+        "dnsSuffix": "dev.company.com",
         "config": {
             "hadoop": {
                 "core_site": {
@@ -127,7 +130,7 @@ Layout constraints define which services must and can't coexist on the same node
 Each inner array is a set of services that must all coexist together on the same node.  For example, in a hadoop cluster, you generally want datanodes, regionservers, 
 and nodemanagers to all be placed together. To achieve this cloistered coexistancy, you would put all 3 services in the same "must coexist" constraint.  Must coexist constraints 
 are not transitive. If there is one constraint saying serviceA must coexist with serviceB, and another constraint saying serviceB must coexist with serviceC, this does NOT mean 
-that serviceA must coexist with serviceC. Loom was designed this way to prevent unintended links between services, especially as the number of must coexist constraints increase.
+that serviceA must coexist with serviceC. Continuuity Loom was designed this way to prevent unintended links between services, especially as the number of must coexist constraints increase.
 If a must coexist rule contains a service that is not on the cluster, it is shrunk to ignore the service that is not on the cluster. For example, your template may be compatible with 
 datanodes, nodemanagers, and regionservers. However, by default, you only put datanodes and nodemanagers on the cluster. A constraint stating that datanodes, nodemanagers, and 
 regionservers must coexist on the same node will get transformed into a constraint that just says datanodes and nodemanagers must coexist on the same node.
@@ -204,11 +207,13 @@ Example Administration Section
 
 
 .. _template-create:
+
 Add a Cluster Template
-==================
+======================
 
 To create a new cluster template, make a HTTP POST request to URI:
 ::
+
  /clustertemplates
 
 POST Parameters
@@ -348,11 +353,13 @@ Example
         http://<loom-server>:<loom-port>/<version>/loom/clustertemplates
 
 .. _template-retrieve:
+
 Retrieve a Cluster Template
-===================
+===========================
 
 To retrieve details about a cluster template, make a GET HTTP request to URI:
 ::
+
  /clustertemplates/{name}
 
 This resource request represents an individual cluster template for viewing.
@@ -372,7 +379,7 @@ HTTP Responses
      - If the resource requested is not configured and available in system.
 
 Example
-^^^^^^^^
+^^^^^^^
 .. code-block:: bash
 
  $ curl -H 'X-Loom-UserID:admin' 
@@ -464,12 +471,15 @@ Example
          }
       }
   }
+
 .. _template-delete:
+
 Delete a Cluster Template
-=================
+=========================
 
 To delete a cluster template, make a DELETE HTTP request to URI:
 ::
+
  /clustertemplates/{name}
 
 This resource requests represents an individual cluster template for deletion.
@@ -498,11 +508,13 @@ Example
         http://<loom-server>:<loom-port>/<version>/loom/clustertemplates/hadoop.example
 
 .. _template-modify:
+
 Update a Cluster Template
-==================
+=========================
 
 To update a service, make a PUT HTTP request to URI:
 ::
+
  /clustertemplates/{name}
 
 Resource specified above respresents an individual services request for an update operation.
@@ -641,12 +653,14 @@ Example
       http://<loom-server>:<loom-port>/<version>/loom/clustertemplates/hadoop.example
 
 .. _template-all-list:
-List all Cluster Templates
-=============================
 
-To list all the services configured within in Loom, make GET HTTP request to URI:
+List all Cluster Templates
+==========================
+
+To list all the cluster templates configured within Continuuity Loom, make a GET HTTP request to URI:
 ::
- /clustertemplates
+
+  /clustertemplates
 
 HTTP Responses
 ^^^^^^^^^^^^^^

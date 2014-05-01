@@ -16,12 +16,16 @@
 package com.continuuity.loom.layout;
 
 import com.continuuity.loom.admin.ClusterTemplate;
+import com.continuuity.loom.admin.Compatibilities;
 import com.continuuity.loom.admin.HardwareType;
 import com.continuuity.loom.admin.ImageType;
 import com.continuuity.loom.admin.Provider;
 import com.continuuity.loom.admin.Service;
 import com.continuuity.loom.cluster.Cluster;
 import com.continuuity.loom.cluster.Node;
+import com.continuuity.loom.layout.change.ClusterLayoutChange;
+import com.continuuity.loom.layout.change.ClusterLayoutTracker;
+import com.continuuity.loom.scheduler.task.NodeService;
 import com.continuuity.loom.store.EntityStore;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableSet;
@@ -47,15 +51,63 @@ import java.util.UUID;
 public class Solver {
   private static final Logger LOG  = LoggerFactory.getLogger(Solver.class);
   private final EntityStore entityStore;
+  private final ClusterLayoutUpdater updater;
 
   @Inject
-  Solver(EntityStore entityStore) {
+  Solver(EntityStore entityStore, ClusterLayoutUpdater updater) {
     this.entityStore = entityStore;
+    this.updater = updater;
   }
 
   /**
-   * Given a {@link Cluster} and {@link ClusterRequest}, return a mapping of node id to {@link Node} describing how the
-   * cluster should be laid out. If multiple possible cluster layouts are possible, one will be chosen
+   * Add services to a cluster, returning which nodes were affected by the change or null if there was no way to
+   * add the services to the cluster.
+   *
+   * @param cluster Cluster to add the services to.
+   * @param clusterNodes Nodes in the cluster.
+   * @param servicesToAdd Services to add to the cluster.
+   * @return Nodes that need to have services added to them.
+   * @throws Exception
+   */
+  public Set<Node> addServicesToCluster(Cluster cluster, Set<Node> clusterNodes,
+                                        Set<String> servicesToAdd) throws Exception {
+    Map<String, Service> serviceMap = getServiceMap(Sets.union(cluster.getServices(), servicesToAdd));
+    validateServiceCompatibilities(cluster.getClusterTemplate().getCompatibilities(), servicesToAdd);
+    validateServiceDependencies(serviceMap);
+
+    ClusterLayoutTracker tracker = updater.addServicesToCluster(cluster, clusterNodes, servicesToAdd);
+    if (tracker == null) {
+      return null;
+    }
+
+    Set<Node> changedNodes = Sets.newHashSet();
+    for (ClusterLayoutChange change : tracker.getChanges()) {
+      changedNodes.addAll(change.applyChange(cluster, clusterNodes, serviceMap));
+    }
+    return changedNodes;
+  }
+
+  /**
+   * Validate whether or not a set of services are allowed to be added to a cluster.
+   *
+   * @param cluster Cluster to check addition of services to.
+   * @param servicesToAdd Services to add to the cluster
+   * @throws Exception
+   */
+  public void validateServicesToAdd(Cluster cluster, Set<String> servicesToAdd) throws Exception {
+    Map<String, Service> serviceMap = getServiceMap(Sets.union(cluster.getServices(), servicesToAdd));
+    validateServicesToAdd(cluster, servicesToAdd, serviceMap);
+  }
+
+  private void validateServicesToAdd(Cluster cluster, Set<String> servicesToAdd, Map<String, Service> serviceMap)
+    throws Exception {
+    validateServiceCompatibilities(cluster.getClusterTemplate().getCompatibilities(), servicesToAdd);
+    validateServiceDependencies(serviceMap);
+  }
+
+  /**
+   * Given a {@link Cluster} and {@link ClusterCreateRequest}, return a mapping of node id to {@link Node} describing
+   * how the cluster should be laid out. If multiple possible cluster layouts are possible, one will be chosen
    * deterministically.
    *
    * @param cluster Cluster to solve a layout for.
@@ -63,9 +115,9 @@ public class Solver {
    * @return Mapping of node id to node for all nodes in the cluster.
    * @throws Exception
    */
-  public Map<String, Node> solveClusterNodes(Cluster cluster, ClusterRequest request) throws Exception {
+  public Map<String, Node> solveClusterNodes(Cluster cluster, ClusterCreateRequest request) throws Exception {
     // make sure the template exists
-    String clusterTemplateName = request.getClusterTemplateName();
+    String clusterTemplateName = request.getClusterTemplate();
     ClusterTemplate template = entityStore.getClusterTemplate(clusterTemplateName);
     if (template == null) {
       throw new IllegalArgumentException("cluster template " + clusterTemplateName + " does not exist.");
@@ -118,13 +170,14 @@ public class Solver {
     // Determine valid lease duration for the cluster. It has to be less than the initial lease duration set in
     // template.
     long initialLeaseDuration = template.getAdministration().getLeaseDuration().getInitial();
-    long effectiveRequestLeaseDuration = request.getLeaseDuration() == 0 ? Long.MAX_VALUE : request.getLeaseDuration();
+    long effectiveRequestLeaseDuration = request.getInitialLeaseDuration() == 0
+      ? Long.MAX_VALUE : request.getInitialLeaseDuration();
     long leaseDuration;
 
-    if (request.getLeaseDuration() == -1) {
+    if (request.getInitialLeaseDuration() == -1) {
       leaseDuration = initialLeaseDuration;
     } else if (initialLeaseDuration == 0 || initialLeaseDuration >= effectiveRequestLeaseDuration) {
-      leaseDuration = request.getLeaseDuration();
+      leaseDuration = request.getInitialLeaseDuration();
     } else {
       throw new IllegalArgumentException("lease duration cannot be greater than specified in template");
     }
@@ -140,34 +193,21 @@ public class Solver {
     if (serviceNames == null || serviceNames.isEmpty()) {
       serviceNames = template.getClusterDefaults().getServices();
     }
-    Set<String> allowedServices = template.getCompatibilities().getServices();
-    if (!allowedServices.isEmpty()) {
-      Sets.SetView<String> diff = Sets.difference(serviceNames, allowedServices);
-      if (diff.size() > 1) {
-        String badServices =
-          Joiner.on(",").join(Sets.difference(serviceNames, template.getCompatibilities().getServices()));
-        throw new IllegalArgumentException(
-          "services " + badServices + " are not allowed with template " + clusterTemplateName);
-      } else if (diff.size() > 0) {
-        throw new IllegalArgumentException(
-          "service " + diff.iterator().next() + " is not allowed with template " + clusterTemplateName);
-      }
-    }
+    validateServiceCompatibilities(template.getCompatibilities(), serviceNames);
 
     Map<String, Service> serviceMap = getServiceMap(serviceNames);
-    for (Service service : serviceMap.values()) {
-      for (String dependency : service.getDependsOn()) {
-        if (!serviceNames.contains(dependency)) {
-          throw new IllegalArgumentException("service " + service.getName() + " depends on " + dependency
-          + ", which is not in the set of cluster services");
-        }
-      }
-    }
+    validateServiceDependencies(serviceMap);
     cluster.setServices(serviceNames);
+
+    // TODO: move building of node properties to NodeService or Node or some place more sensible
+    String dnsSuffix = request.getDnsSuffix();
+    if (dnsSuffix == null || dnsSuffix.isEmpty()) {
+      dnsSuffix = template.getClusterDefaults().getDnsSuffix();
+    }
 
     Map<String, Node> nodes =
       solveConstraints(cluster.getId(), template, request.getName(), request.getNumMachines(), hardwareTypeFlavors,
-                       imageTypeMap, serviceNames, serviceMap);
+                       imageTypeMap, serviceNames, serviceMap, dnsSuffix);
 
     // Update cluster object
     // TODO: this should happen outside Solver.
@@ -260,6 +300,75 @@ public class Solver {
     }
   }
 
+  private void validateServiceCompatibilities(Compatibilities compatibilities, Set<String> services) {
+    Set<String> compatibleServices = compatibilities.getServices();
+    if (compatibleServices != null && !compatibleServices.isEmpty()) {
+      Set<String> incompatibleServices = Sets.difference(services, compatibilities.getServices());
+      if (!incompatibleServices.isEmpty()) {
+        String incompatibleStr = Joiner.on(',').join(incompatibleServices);
+        throw new IllegalArgumentException(incompatibleStr + " are incompatible with the cluster");
+      }
+    }
+  }
+
+  /**
+   * Given a map of service name to {@link Service}, validate that the service dependency requirements for all services
+   * in the map are satisfied by some other service in the map, throwing an {@link IllegalArgumentException} if they
+   * are not.
+   *
+   * @param serviceMap Map of service name to {@link Service} to check all dependency requirements for.
+   * @throws Exception
+   */
+  private void validateServiceDependencies(Map<String, Service> serviceMap) throws Exception {
+    // gather all services that will be provided on the cluster. This is every service plus any service they provide.
+    Set<String> providedServices = Sets.newHashSet();
+    for (Service service : serviceMap.values()) {
+      providedServices.addAll(service.getDependencies().getProvides());
+    }
+    providedServices = Sets.union(serviceMap.keySet(), providedServices);
+
+    // check dependencies
+    boolean dependenciesSatisfied = true;
+    StringBuilder errMsg = new StringBuilder();
+    for (Service service : serviceMap.values()) {
+      for (String serviceDependency : service.getDependencies().getRequiredServices()) {
+        if (!providedServices.contains(serviceDependency)) {
+          if (!dependenciesSatisfied) {
+            errMsg.append("\n");
+          }
+          errMsg.append(service.getName());
+          errMsg.append(" requires ");
+          errMsg.append(serviceDependency);
+          errMsg.append(", which is not on the cluster or in the list of services to add.");
+          dependenciesSatisfied = false;
+        }
+      }
+    }
+    if (!dependenciesSatisfied) {
+      throw new IllegalArgumentException(errMsg.toString());
+    }
+
+    boolean hasConflicts = false;
+    errMsg = new StringBuilder();
+    for (Service service : serviceMap.values()) {
+      for (String conflictingService : service.getDependencies().getConflicts()) {
+        if (serviceMap.keySet().contains(conflictingService)) {
+          if (hasConflicts) {
+            errMsg.append("\n");
+          }
+          errMsg.append(service.getName());
+          errMsg.append(" conflicts with ");
+          errMsg.append(conflictingService);
+          errMsg.append(".");
+          hasConflicts = true;
+        }
+      }
+    }
+    if (hasConflicts) {
+      throw new IllegalArgumentException(errMsg.toString());
+    }
+  }
+
   // solves for a valid cluster layout based on the constraints. First finds all possible node layouts that can be
   // used in the cluster based on the services that need to be on the cluster and constraints. Then searches for a
   // valid number of each node layout based on the constraints.
@@ -268,7 +377,8 @@ public class Solver {
                                             Map<String, String> hardwareTypeMap,
                                             Map<String, String> imageTypeMap,
                                             Set<String> serviceNames,
-                                            Map<String, Service> serviceMap) throws Exception {
+                                            Map<String, Service> serviceMap,
+                                            String dnsSuffix) throws Exception {
     NodeLayoutGenerator nodeLayoutGenerator =
       new NodeLayoutGenerator(clusterTemplate, serviceNames, hardwareTypeMap.keySet(), imageTypeMap.keySet());
 
@@ -293,7 +403,6 @@ public class Solver {
       NodeLayout nodeLayout = traversalOrder.get(i);
       for (int j = 0; j < clusterlayout[i]; j++) {
         String nodeId = UUID.randomUUID().toString();
-        // TODO: add any data that the node should have.
         Set<Service> nodeServices = Sets.newHashSet();
         for (String serviceName : nodeLayout.getServiceNames()) {
           nodeServices.add(serviceMap.get(serviceName));
@@ -301,33 +410,20 @@ public class Solver {
         String hardwaretype = nodeLayout.getHardwareTypeName();
         String imagetype = nodeLayout.getImageTypeName();
         Map<String, String> nodeProperties = Maps.newHashMap();
-        nodeProperties.put("hardwaretype", hardwaretype);
-        nodeProperties.put("imagetype", imagetype);
-        nodeProperties.put("flavor", hardwareTypeMap.get(hardwaretype));
-        nodeProperties.put("image", imageTypeMap.get(imagetype));
+        // TODO: these should be proper fields and logic for populating node properties should not be in the solver.
+        nodeProperties.put(Node.Properties.HARDWARETYPE.name().toLowerCase(), hardwaretype);
+        nodeProperties.put(Node.Properties.IMAGETYPE.name().toLowerCase(), imagetype);
+        nodeProperties.put(Node.Properties.FLAVOR.name().toLowerCase(), hardwareTypeMap.get(hardwaretype));
+        nodeProperties.put(Node.Properties.IMAGE.name().toLowerCase(), imageTypeMap.get(imagetype));
         // used for macro expansion and when expanding service numbers.  For every new node added to the cluster,
         // the nodenum should be greater than any other nodenum in the cluster.
         nodeProperties.put(Node.Properties.NODENUM.name().toLowerCase(), String.valueOf(nodeNum));
         nodeProperties.put(Node.Properties.HOSTNAME.name().toLowerCase(),
-                           createHostname(clusterName, clusterId, nodeNum));
+                           NodeService.createHostname(clusterName, clusterId, nodeNum, dnsSuffix));
         nodeNum++;
         clusterNodes.put(nodeId, new Node(nodeId, clusterId, nodeServices, nodeProperties));
       }
     }
     return clusterNodes;
-  }
-
-  // creates a unique hostname from the cluster name, cluster id, and node number. Hostnames are of the format
-  // <clustername><clusterid>-<nodenum>.local, with underscores and dots replaced by dashes, and with whole hostname
-  // trimmed to 255 characters if it would otherwise have been too long.
-  static String createHostname(String clusterName, String clusterId, int nodeNum) {
-    long clusterIdNum = Long.valueOf(clusterId);
-    String cleaned = clusterName.replace("_", "-");
-    cleaned = cleaned.replace(".", "-");
-    String postfix = clusterIdNum + "-" + nodeNum + ".local";
-    if (cleaned.length() + postfix.length() > 255) {
-      cleaned = cleaned.substring(0, 255 - postfix.length());
-    }
-    return cleaned + postfix;
   }
 }

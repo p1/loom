@@ -17,6 +17,7 @@
 
 .. index::
    single: REST API: Tasks
+
 ==================
 REST API: Tasks 
 ==================
@@ -29,11 +30,13 @@ whether or not execution of the task was successful. These APIs are only of inte
 plugins.
 
 .. _tasks-take:
+
 Taking a Task
 =============
 
 To take a task from the Server, make a HTTP POST request to URI:
 ::
+
  /tasks/take
 
 The response will be a JSON object describing the task to perform. Each task will contain ``taskId``, ``jobId``, ``clusterId``, ``taskName``, 
@@ -147,7 +150,8 @@ Example
                 "provisioner": {
                     "auth": {
                         "rackspace_username": "USERNAME",
-                        "rackspace_api_key": "API_KEY"
+                        "rackspace_api_key": "API_KEY",
+                        "rackspace_region": "dfw"
                     }
                 }
             },
@@ -186,11 +190,13 @@ Example
 
 
 .. _tasks-finish:
+
 Finish a Task
 =============
 
 After a provisioner finishes executing the task, it sends a POST request to URI:
 ::
+
  /tasks/finish
 
 The POST body is a JSON object that must contain at least ``workerId``, ``taskId``, and ``status``. It can also optionally contain

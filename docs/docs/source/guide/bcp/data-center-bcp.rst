@@ -16,16 +16,17 @@
 .. _overview_single_data_center:
 .. index::
    single: Datacenter High Availability
+
 =============================
 Datacenter High Availability
 =============================
 
-Loom can be configured to be resilient to machine or component failures. This document describes the recommended configuration 
-for setting up Loom for HA within a single datacenter. Please refer to :doc:`multi-datacenter HA <multi-data-center-bcp>` documentation
+Continuuity Loom can be configured to be resilient to machine or component failures. This document describes the recommended configuration
+for setting up Continuuity Loom for HA within a single datacenter. Please refer to :doc:`multi-datacenter HA <multi-data-center-bcp>` documentation
 for configuring HA across multiple datacenters.
 
 In order to support resiliency against machine or component failures within a datacenter, Loom components can be configured to 
-run with redundancies on multiple machines. Each machine running Loom can have a maximum of -
+run with redundancies on multiple machines. Each machine running Continuuity Loom can have a maximum of -
 
 * One loom-ui process
 * One loom-server process
@@ -33,7 +34,7 @@ run with redundancies on multiple machines. Each machine running Loom can have a
 * One ZooKeeper process
 * One database process
 
-The diagram below shows the logical deployment diagram of Loom for HA in a datacenter-
+The diagram below shows the logical deployment diagram of Continuuity Loom for HA in a datacenter-
 
 .. _single-dc:
 .. figure:: /_images/ha_within_colo.png
@@ -41,7 +42,7 @@ The diagram below shows the logical deployment diagram of Loom for HA in a datac
     :alt: Within Datacenter Architecture Diagram
 
 Loom UI
-------
+-------
 Loom UI (loom-ui) is stateless, and communicates with Loom Server using REST endpoints. Hence Loom UI can be easily run on multiple machines. User traffic is routed to multiple instances of Loom UI using load balancers (such as HAproxy or Varnish or VIP).
 
 Loom Provisioner

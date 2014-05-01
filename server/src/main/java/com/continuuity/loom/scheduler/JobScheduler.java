@@ -66,7 +66,6 @@ public class JobScheduler implements Runnable {
   private final ZKClient zkClient;
   private final TaskService taskService;
   private final int maxTaskRetries;
-  private final Actions actions;
   private final LoomStats loomStats;
 
   @Inject
@@ -82,7 +81,6 @@ public class JobScheduler implements Runnable {
     this.taskService = taskService;
     this.maxTaskRetries = maxTaskRetries;
     this.loomStats = loomStats;
-    this.actions = new Actions();
   }
 
   @Override
@@ -157,7 +155,7 @@ public class JobScheduler implements Runnable {
                 TaskConfig.addNodeList(task.getConfig(), clusterNodes);
 
                 // TODO: do this only once and save it
-                if (!actions.getHardwareActions().contains(task.getTaskName())) {
+                if (!task.getTaskName().isHardwareAction()) {
                   try {
                     task.setConfig(Expander.expand(task.getConfig(), null, clusterNodes, taskNode).getAsJsonObject());
                   } catch (Throwable e) {
@@ -209,8 +207,9 @@ public class JobScheduler implements Runnable {
             }
           } else if (inProgressTasks == 0) {
             // Job failed and no in progress tasks remaining, update cluster status
-            loomStats.getFailedClusterStats().incrementStat(job.getClusterAction());
-            cluster.setStatus(Cluster.Status.INCOMPLETE);
+            ClusterAction clusterAction = job.getClusterAction();
+            loomStats.getFailedClusterStats().incrementStat(clusterAction);
+            cluster.setStatus(clusterAction.getFailureStatus());
             clusterStore.writeCluster(cluster);
           }
 

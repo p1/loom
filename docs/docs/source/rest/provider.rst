@@ -17,6 +17,7 @@
 
 .. index::
    single: REST API: Provider
+
 ==================
 REST API: Provider
 ==================
@@ -25,17 +26,19 @@ REST API: Provider
 
 Using the Loom REST API, you can manage providers as well as query available flavors of hardware or instance sizes.
 (This API call is also used during the provisioning of instances of machines.) Even though new providers are automatically 
-registered, the APIs are available if administrators desire to configure them manually. By default, Loom system supports 
+registered, the APIs are available if administrators desire to configure them manually. By default, the Loom system supports
 Openstack out of the box.
 
 Each provider configured in the system has a unique name, a short description, and a list of key-value pairs that are required by the backend hardware provisioner.
 
 .. _provider-create:
+
 Create a Provider
 ==================
 
 To create a new provider, make a HTTP POST request to URI:
 ::
+
  /providers
 
 POST Parameters
@@ -86,11 +89,13 @@ Example
         http://<loom-server>:<loom-port>/<version>/loom/providers
 
 .. _provider-retrieve:
+
 Retrieve a Provider
 ===================
 
 To retrieve details about a provider type, make a GET HTTP request to URI:
 ::
+
  /providers/{name}
 
 This resource request represents an individual provider for viewing.
@@ -120,11 +125,13 @@ Example
 
 
 .. _provider-delete:
+
 Delete a Provider
 =================
 
 To delete a provider type, make a DELETE HTTP request to URI:
 ::
+
  /providers/{name}
 
 This resource request represents an individual provider for deletion.
@@ -153,11 +160,13 @@ Example
         http://<loom-server>:<loom-port>/<version>/loom/providers/example
 
 .. _provider-modify:
+
 Update a Provider
 ==================
 
 To update a provider type, make a PUT HTTP request to URI:
 ::
+
  /providers/{name}
 
 Resource specified above respresents an individual provider that is being updated.
@@ -216,6 +225,7 @@ Example
  $ {"name":"example","description":"Updated example","providertype":"openstack","provisioner":{}}
 
 .. _provider-all-list:
+
 List All Providers
 =============================
 
@@ -223,8 +233,9 @@ A configured provider represents a resource used for querying resource types as 
 resources. The list of all configured providers are available for you to retrieve. The provider list resource represents 
 the comprehensive set of providers configured within the Loom system.
 
-To list all the providers configured within in Loom, make GET HTTP request to URI:
+To list all the providers configured within Continuuity Loom, make GET HTTP request to URI:
 ::
+
  /providers
 
 HTTP Responses

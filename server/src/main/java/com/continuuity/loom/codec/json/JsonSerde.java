@@ -27,6 +27,11 @@ import com.continuuity.loom.admin.Provider;
 import com.continuuity.loom.admin.Service;
 import com.continuuity.loom.admin.ServiceAction;
 import com.continuuity.loom.admin.ServiceConstraint;
+import com.continuuity.loom.admin.ServiceDependencies;
+import com.continuuity.loom.admin.ServiceStageDependencies;
+import com.continuuity.loom.http.AddServicesRequest;
+import com.continuuity.loom.http.ClusterConfigureRequest;
+import com.continuuity.loom.layout.ClusterCreateRequest;
 import com.google.common.base.Charsets;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -46,6 +51,8 @@ public class JsonSerde {
       .registerTypeAdapter(HardwareType.class, new HardwareTypeCodec())
       .registerTypeAdapter(ImageType.class, new ImageTypeCodec())
       .registerTypeAdapter(Service.class, new ServiceCodec())
+      .registerTypeAdapter(ServiceDependencies.class, new ServiceDependenciesCodec())
+      .registerTypeAdapter(ServiceStageDependencies.class, new ServiceStageDependenciesCodec())
       .registerTypeAdapter(ClusterTemplate.class, new ClusterTemplateCodec())
       .registerTypeAdapter(ServiceAction.class, new ServiceActionCodec())
       .registerTypeAdapter(ServiceConstraint.class, new ServiceConstraintCodec())
@@ -55,6 +62,9 @@ public class JsonSerde {
       .registerTypeAdapter(ClusterDefaults.class, new ClusterDefaultsCodec())
       .registerTypeAdapter(Administration.class, new AdministrationCodec())
       .registerTypeAdapter(LeaseDuration.class, new LeaseDurationCodec())
+      .registerTypeAdapter(ClusterCreateRequest.class, new ClusterCreateRequestCodec())
+      .registerTypeAdapter(ClusterConfigureRequest.class, new ClusterConfigureRequestCodec())
+      .registerTypeAdapter(AddServicesRequest.class, new AddServicesRequestCodec())
       .enableComplexMapKeySerialization()
       .create();
   }

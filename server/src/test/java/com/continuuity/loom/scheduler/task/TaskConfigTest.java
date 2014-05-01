@@ -59,7 +59,7 @@ public class TaskConfigTest {
       "development hadoop cluster template",
       new ClusterDefaults(
         ImmutableSet.of("namenode", "datanode", "resourcemanager", "nodemanager"),
-        "openstack1", null, null, conf),
+        "openstack1", null, null, null, conf),
       new Compatibilities(
         null,
         null,
@@ -108,7 +108,7 @@ public class TaskConfigTest {
                                new ServiceAction("chef", "configure recipe", null)
                              )
     );
-    Service s3 = new Service("hosts", "for managing /etc/hosts", null,
+    Service s3 = new Service("hosts", "for managing /etc/hosts", ImmutableSet.<String>of(),
                              ImmutableMap.<ProvisionerAction, ServiceAction>of(
                                ProvisionerAction.CONFIGURE,
                                new ServiceAction("chef", "configure recipe", null)

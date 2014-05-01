@@ -16,6 +16,7 @@
 package com.continuuity.loom.layout;
 
 import com.continuuity.loom.Entities;
+import com.continuuity.loom.admin.Administration;
 import com.continuuity.loom.admin.ClusterDefaults;
 import com.continuuity.loom.admin.ClusterTemplate;
 import com.continuuity.loom.admin.Compatibilities;
@@ -23,6 +24,8 @@ import com.continuuity.loom.admin.Constraints;
 import com.continuuity.loom.admin.ProvisionerAction;
 import com.continuuity.loom.admin.Service;
 import com.continuuity.loom.admin.ServiceAction;
+import com.continuuity.loom.admin.ServiceDependencies;
+import com.continuuity.loom.admin.ServiceStageDependencies;
 import com.continuuity.loom.cluster.Cluster;
 import com.continuuity.loom.cluster.Node;
 import com.continuuity.loom.codec.json.JsonSerde;
@@ -50,24 +53,118 @@ import java.util.Set;
 public class SolverTest extends BaseSolverTest {
   private static Solver solver;
 
-  @Test
-  public void testCreateHostname() {
-    String clusterId = "00000001";
-    Assert.assertEquals("i-am-a-cluster1-1002.local",
-                        solver.createHostname("i.am-a_cluster", clusterId, 1002));
 
-    StringBuilder longName = new StringBuilder();
-    for (int i = 0; i < 243; i++) {
-      longName.append("a");
-    }
-    String bigName = longName.toString();
-    Assert.assertEquals(bigName + "1-" + "1002.local", solver.createHostname(bigName + "bcde", clusterId, 1002));
+  @Test(expected = IllegalArgumentException.class)
+  public void testDependencyMissingThrowsException() throws Exception {
+    Cluster cluster = new Cluster("123", "user1", "hadoop", System.currentTimeMillis(), "hadoop cluster",
+                                  Entities.ProviderExample.RACKSPACE, reactorTemplate, ImmutableSet.<String>of(),
+                                  ImmutableSet.of(namenode.getName(), datanode.getName()));
+    solver.validateServicesToAdd(cluster, ImmutableSet.of(nodemanager.getName()));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testInvalidServiceThrowsException() throws Exception {
+    Cluster cluster = new Cluster("123", "user1", "hadoop", System.currentTimeMillis(), "hadoop cluster",
+                                  Entities.ProviderExample.RACKSPACE, reactorTemplate, ImmutableSet.<String>of(),
+                                  ImmutableSet.of(namenode.getName(), datanode.getName()));
+    solver.validateServicesToAdd(cluster, ImmutableSet.of("fakeservice"));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testIncompatibleServiceThrowsException() throws Exception {
+    Cluster cluster = new Cluster("123", "user1", "hadoop", System.currentTimeMillis(), "hadoop cluster",
+                                  Entities.ProviderExample.RACKSPACE, reactorTemplate, ImmutableSet.<String>of(),
+                                  ImmutableSet.of(namenode.getName(), datanode.getName()));
+    solver.validateServicesToAdd(cluster, ImmutableSet.of(mysql.getName()));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testConflictingServicesThrowsException() throws Exception {
+    Set<String> services = ImmutableSet.of("myapp-1");
+    ClusterTemplate template = new ClusterTemplate(
+      "name", "description",
+      new ClusterDefaults(services, "joyent", null, null, null, Entities.ClusterTemplateExample.clusterConf),
+      new Compatibilities(null, null, ImmutableSet.<String>of("myapp-1", "myapp-2")),
+      Constraints.EMPTY_CONSTRAINTS,
+      Administration.EMPTY_ADMINISTRATION
+    );
+    Service myapp1 = new Service("myapp-1",
+                                 "my app v1",
+                                 new ServiceDependencies(
+                                   ImmutableSet.<String>of("myapp"),
+                                   ImmutableSet.<String>of("myapp-2"),
+                                   null, null),
+                                 ImmutableMap.<ProvisionerAction, ServiceAction>of());
+    Service myapp2 = new Service("myapp-2",
+                                 "my app v2",
+                                 new ServiceDependencies(
+                                   ImmutableSet.<String>of("myapp"),
+                                   ImmutableSet.<String>of("myapp-1"),
+                                   null, null),
+                                 ImmutableMap.<ProvisionerAction, ServiceAction>of());
+    entityStore.writeService(myapp1);
+    entityStore.writeService(myapp2);
+    Cluster cluster = new Cluster("123", "user1", "cluster", System.currentTimeMillis(), "test cluster",
+                                  Entities.ProviderExample.RACKSPACE, template, ImmutableSet.<String>of(),
+                                  ImmutableSet.of(myapp1.getName()));
+    solver.validateServicesToAdd(cluster, ImmutableSet.of(myapp2.getName()));
   }
 
   @Test
+  public void testUsesDoesNotForceDependencyOnCluster() throws Exception {
+    Set<String> services = ImmutableSet.of("service1");
+    ClusterTemplate template = new ClusterTemplate(
+      "name", "description",
+      new ClusterDefaults(services, "joyent", null, null, null, Entities.ClusterTemplateExample.clusterConf),
+      new Compatibilities(null, null, ImmutableSet.<String>of("service1", "service2", "service3")),
+      Constraints.EMPTY_CONSTRAINTS,
+      Administration.EMPTY_ADMINISTRATION
+    );
+    Service service1 = new Service("service1",
+                                   "my service1",
+                                   ServiceDependencies.EMPTY_SERVICE_DEPENDENCIES,
+                                   ImmutableMap.<ProvisionerAction, ServiceAction>of());
+    // service2 uses service 1 at install time
+    Service service2 = new Service("service2",
+                                   "my service2",
+                                   new ServiceDependencies(
+                                     null,
+                                     null,
+                                     new ServiceStageDependencies(
+                                       ImmutableSet.<String>of(),
+                                       ImmutableSet.<String>of("service1")
+                                     ),
+                                     null
+                                   ),
+                                   ImmutableMap.<ProvisionerAction, ServiceAction>of());
+    // service 3 uses service 1 at runtime
+    Service service3 = new Service("service3",
+                                   "my service3",
+                                   new ServiceDependencies(
+                                     null,
+                                     null,
+                                     null,
+                                     new ServiceStageDependencies(
+                                       ImmutableSet.<String>of(),
+                                       ImmutableSet.<String>of("service1")
+                                     )
+                                   ),
+                                   ImmutableMap.<ProvisionerAction, ServiceAction>of());
+    entityStore.writeService(service1);
+    entityStore.writeService(service2);
+    entityStore.writeService(service3);
+    Cluster cluster = new Cluster("123", "user1", "cluster", System.currentTimeMillis(), "test cluster",
+                                  Entities.ProviderExample.RACKSPACE, template, ImmutableSet.<String>of(),
+                                  ImmutableSet.of(service1.getName()));
+    solver.validateServicesToAdd(cluster, ImmutableSet.of(service2.getName(), service3.getName()));
+  }
+
+
+  @Test
   public void testEndToEnd() throws Exception {
-    ClusterRequest request =
-      new ClusterRequest("mycluster", "my reactor cluster", reactorTemplate.getName(), 5, null, null, null, null, 0);
+    ClusterCreateRequest request =
+      new ClusterCreateRequest("mycluster", "my reactor cluster", reactorTemplate.getName(),
+                         5, null, null, null, null, 0L, null, null);
     Map<String, Node> nodes = solver.solveClusterNodes(
       new Cluster("1", "owner1", request.getName(), System.currentTimeMillis(), request.getDescription(),
                   null, null, ImmutableSet.<String>of(), ImmutableSet.<String>of()),
@@ -93,8 +190,8 @@ public class SolverTest extends BaseSolverTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void testUnknownTemplateThrowsException() throws Exception {
-    ClusterRequest request =
-      new ClusterRequest("mycluster", "my cluster", "bad template name", 5, null, null, null, null, -1);
+    ClusterCreateRequest request =
+      new ClusterCreateRequest("mycluster", "my cluster", "bad template name", 5, null, null, null, null, -1L, null, null);
     solver.solveClusterNodes(
       new Cluster("1", "owner1", request.getName(), System.currentTimeMillis(), request.getDescription(),
                   null, null, ImmutableSet.<String>of(), ImmutableSet.<String>of()),
@@ -103,9 +200,9 @@ public class SolverTest extends BaseSolverTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void testDisallowedServicesThrowsException() throws Exception {
-    ClusterRequest request =
-      new ClusterRequest("mycluster", "my cluster", reactorTemplate.getName(), 5, "joyent",
-                         ImmutableSet.of("namenode", "datanode", "mysql", "httpd"), null, null, -1);
+    ClusterCreateRequest request =
+      new ClusterCreateRequest("mycluster", "my cluster", reactorTemplate.getName(), 5, "joyent",
+                         ImmutableSet.of("namenode", "datanode", "mysql", "httpd"), null, null, -1L, null, null);
     solver.solveClusterNodes(
       new Cluster("1", "owner1", request.getName(), System.currentTimeMillis(), request.getDescription(),
                   null, null, ImmutableSet.<String>of(), ImmutableSet.<String>of()),
@@ -114,9 +211,9 @@ public class SolverTest extends BaseSolverTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void testMissingServiceDependenciesThrowsException() throws Exception {
-    ClusterRequest request =
-      new ClusterRequest("mycluster", "my cluster", reactorTemplate.getName(), 5, "joyent",
-                         ImmutableSet.of("reactor", "datanode"), null, null, -1);
+    ClusterCreateRequest request =
+      new ClusterCreateRequest("mycluster", "my cluster", reactorTemplate.getName(), 5, "joyent",
+                         ImmutableSet.of("reactor", "datanode"), null, null, -1L, null, null);
     solver.solveClusterNodes(
       new Cluster("1", "owner1", request.getName(), System.currentTimeMillis(), request.getDescription(),
                   null, null, ImmutableSet.<String>of(), ImmutableSet.<String>of()),
@@ -125,9 +222,9 @@ public class SolverTest extends BaseSolverTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void testNoAvailableHardwareTypesThrowsException() throws Exception {
-    ClusterRequest request =
-      new ClusterRequest("mycluster", "my cluster", reactorTemplate.getName(), 5, "rackspace",
-                         ImmutableSet.of("namenode", "datanode"), null, null, -1);
+    ClusterCreateRequest request =
+      new ClusterCreateRequest("mycluster", "my cluster", reactorTemplate.getName(), 5, "rackspace",
+                         ImmutableSet.of("namenode", "datanode"), null, null, -1L, null, null);
     solver.solveClusterNodes(
       new Cluster("1", "owner1", request.getName(), System.currentTimeMillis(), request.getDescription(),
                   null, null, ImmutableSet.<String>of(), ImmutableSet.<String>of()),
@@ -144,6 +241,7 @@ public class SolverTest extends BaseSolverTest {
           "joyent",
           "medium",
           "ubuntu12",
+          null,
           new JsonObject()
         ),
         new Compatibilities(
@@ -156,7 +254,8 @@ public class SolverTest extends BaseSolverTest {
     entityStore.writeClusterTemplate(simpleTemplate);
 
     // check required hardware types
-    ClusterRequest request = new ClusterRequest("abc", "desc", "simple", 5, "joyent", null, "medium", null, 0);
+    ClusterCreateRequest request =
+      new ClusterCreateRequest("abc", "desc", "simple", 5, "joyent", null, "medium", null, 0L, null, null);
     Map<String, Node> nodes = solver.solveClusterNodes(
       new Cluster("1", "owner1", request.getName(), System.currentTimeMillis(), request.getDescription(),
                   null, null, ImmutableSet.<String>of(), ImmutableSet.<String>of()),
@@ -166,7 +265,7 @@ public class SolverTest extends BaseSolverTest {
       Assert.assertEquals("medium", node.getProperties().get("hardwaretype").getAsString());
     }
 
-    request = new ClusterRequest("abc", "desc", "simple", 5, "joyent", null, "large-mem", null, 0);
+    request = new ClusterCreateRequest("abc", "desc", "simple", 5, "joyent", null, "large-mem", null, 0L, null, null);
     nodes = solver.solveClusterNodes(
       new Cluster("1", "owner1", request.getName(), System.currentTimeMillis(), request.getDescription(),
                   null, null, ImmutableSet.<String>of(), ImmutableSet.<String>of()),
@@ -177,7 +276,7 @@ public class SolverTest extends BaseSolverTest {
     }
 
     // check required image types
-    request = new ClusterRequest("abc", "desc", "simple", 5, "joyent", null, null, "ubuntu12", 0);
+    request = new ClusterCreateRequest("abc", "desc", "simple", 5, "joyent", null, null, "ubuntu12", 0L, null, null);
     nodes = solver.solveClusterNodes(
       new Cluster("1", "owner1", request.getName(), System.currentTimeMillis(), request.getDescription(),
                   null, null, ImmutableSet.<String>of(), ImmutableSet.<String>of()),
@@ -188,7 +287,7 @@ public class SolverTest extends BaseSolverTest {
     }
 
     // test both
-    request = new ClusterRequest("abc", "desc", "simple", 5, "joyent", null, "small", "centos6", 0);
+    request = new ClusterCreateRequest("abc", "desc", "simple", 5, "joyent", null, "small", "centos6", 0L, null, null);
     nodes = solver.solveClusterNodes(
       new Cluster("1", "owner1", request.getName(), System.currentTimeMillis(), request.getDescription(),
                   null, null, ImmutableSet.<String>of(), ImmutableSet.<String>of()),
@@ -216,7 +315,7 @@ public class SolverTest extends BaseSolverTest {
     }
 
     Map<String, Node> nodes = Solver.solveConstraints("1", template, "name", 3,
-                                                      hwTypeMap, imgTypeMap, services, serviceMap);
+                                                      hwTypeMap, imgTypeMap, services, serviceMap, null);
     Multiset<Set<String>> serviceSetCounts = HashMultiset.create();
     for (Map.Entry<String, Node> entry : nodes.entrySet()) {
       Node node = entry.getValue();
@@ -254,7 +353,7 @@ public class SolverTest extends BaseSolverTest {
                                               ImmutableMap.<ProvisionerAction, ServiceAction>of()));
     }
     Map<String, Node> nodes = Solver.solveConstraints("1", reactorTemplate2, "name", 200,
-                                                      hwmap, imgmap, services, serviceMap);
+                                                      hwmap, imgmap, services, serviceMap, null);
     Multiset<Set<String>> serviceSetCounts = HashMultiset.create();
     for (Map.Entry<String, Node> entry : nodes.entrySet()) {
       Node node = entry.getValue();

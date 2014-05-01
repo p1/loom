@@ -20,6 +20,7 @@
 
 .. index::
    single: Chef Automator Plugin
+
 ========================
 Chef Automator Plugin
 ========================
@@ -41,6 +42,7 @@ the typical usage of Chef where one builds up a large run-list managing all reso
 To illustrate this, consider the following example which shows how we can manage the apache web server on Loom cluster
 nodes using the "apache2" community cookbook. We define a Loom service "apache-httpd" as follows:
 ::
+
     {
         "dependson": [
             "hosts"
@@ -77,7 +79,7 @@ the run-list to use. The data field is any additional JSON data we wish to inclu
 later). When the Chef Solo Automator plugin executes any of these actions for the apache-httpd service, it performs
 the following actions:
 
-        1. generate a task-specific JSON file containing any attributes defined in the data field, as well as base cluster attributes defined elsewhere in Loom.
+        1. generate a task-specific JSON file containing any attributes defined in the data field, as well as base cluster attributes defined elsewhere in Continuuity Loom.
         2. invoke chef-solo using the script field as the run-list using  ``chef-solo -o [script] -j [task-specific json]``
 
 
@@ -101,7 +103,7 @@ corresponding Chef service resource, and invokes the specified action.
 JSON Attributes
 ================
 
-Loom maintains significant JSON data for a cluster, and makes it available for each task. This JSON data includes:
+Continuuity Loom maintains significant JSON data for a cluster, and makes it available for each task. This JSON data includes:
     * cluster-wide configuration defined in cluster templates (Catalog -> cluster template -> defaults -> config)
     * node data for each node of the cluster: hostname, ip, etc
     * service data, specified in the actions for each service
@@ -112,6 +114,7 @@ with the JSON layout of the Loom data. In brief, cluster-wide configuration defi
 service-level action data are merged together, and preserved at the top-level. Loom data is then also merged in under
 ``loom/cluster``. For example:
 ::
+
     {
         // cluster config attributes defined in clustertemplates are preserved here at top-level
         // service-level action data string converted to json and merged here at top-level
@@ -162,6 +165,7 @@ In order to add a cookbook for use by the provisioners, simply add it to the coo
 In order to add cookbooks, roles, or data-bags for use by the provisioners, simply add them to the local chef directories for the ChefAutomator
 plugin. If using the default package install, these directories are currently:
 ::
+
     /opt/loom/provisioner/daemon/plugins/automators/chef_automator/chef_automator/cookbooks
     /opt/loom/provisioner/daemon/plugins/automators/chef_automator/chef_automator/roles
     /opt/loom/provisioner/daemon/plugins/automators/chef_automator/chef_automator/data_bags
@@ -176,17 +180,16 @@ definition with the following parameters:
 
 	* Category: any action (install, configure, start, stop, etc)
 	* Type: chef
-	* Script: a run-list containing your cookbook's recipe(s) or roles. If your recipe depends on resources defined in other
-	cookbooks which aren't declared dependencies in your cookbook's metadata, make sure to also add them to the run-list.
+	* Script: a run-list containing your cookbook's recipe(s) or roles. If your recipe depends on resources defined in other cookbooks which aren't declared dependencies in your cookbook's metadata, make sure to also add them to the run-list.
 	* Data: any additional custom attributes you want to specify, unique to this action
 
 Then simply add your service to a cluster template.
 
 
-Loom Helper Cookbooks
-=====================
+Helper Cookbooks
+================
 
-Loom ships with several helper cookbooks.
+Continuuity Loom ships with several helper cookbooks.
 
 **loom_hosts**
 ---------------
@@ -210,6 +213,7 @@ it is defined in, and run the given action. In the example apache-httpd service 
 in the run-list to start or stop the apache2 service defined in the apache2 community cookbook. All that is needed is
 to set the following attribute to "start" or "stop":
 ::
+
     node['loom']['node']['services']['apache2'] = "start"
 
 
@@ -219,6 +223,7 @@ to set the following attribute to "start" or "stop":
 This cookbook is a simple iptables firewall manager, with the added functionality of automatically whitelisting all
 nodes of a cluster. To use, simply set any of the following attributes:
 ::
+
     node['loom_firewall']['INPUT_policy']  = (string)
     node['loom_firewall']['FORWARD_policy'] = (string)
     node['loom_firewall']['OUTPUT_policy'] = (string)
@@ -232,7 +237,7 @@ If this recipe is included in the run-list and no attributes specified, the defa
 Best Practices
 ==============
 
-* Loom is designed to use attribute-driven cookbooks. All user-defined attributes are specified in Loom primitives. Recipes that use Chef server capabilities like discovery and such do not operate well with Loom.
-* Separate the install, configuration, initialization, starting/stopping, and deletion logic of your cookbooks into granular recipes. This way Loom services can often be defined with a 1:1 mapping to recipes. Remember that Loom will need to install, configure, initialize, start, stop, and remove your services, each independently through a combination of run-list and attributes.
+* Continuuity Loom is designed to use attribute-driven cookbooks. All user-defined attributes are specified in Loom primitives. Recipes that use Chef server capabilities like discovery and such do not operate well with Continuuity Loom.
+* Separate the install, configuration, initialization, starting/stopping, and deletion logic of your cookbooks into granular recipes. This way Loom services can often be defined with a 1:1 mapping to recipes. Remember that Continuuity Loom will need to install, configure, initialize, start, stop, and remove your services, each independently through a combination of run-list and attributes.
 * Use wrapper cookbooks in order to customize community cookbooks to suit your needs.
 * Remember to declare cookbook dependencies in metadata.
