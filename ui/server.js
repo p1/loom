@@ -501,10 +501,21 @@ site.app.get('/profile', function (req, res) {
 
 site.app.post('/setskin', function (req, res) {
   var user = site.checkAuth(req, res, false);
-  if ('skin' in req.body) {
-    site.skins[user] = req.body.skin;
+  var data = {};
+  if (!('skin' in req.body)) {
+    data['id'] = user;
+    data['skin'] = req.body.skin;
+    data['mods'] = {}
+  } else {
+    res.send(400, 'No skin provided.');
   }
-  res.redirect('/profile');
+  var options = {
+    uri: BOX_ADDR + '/profiles/' + user,
+    method: 'POST',
+    json: data
+  };
+  res.setHeader('Content-type', 'application/json');
+  site.sendRequestAndHandleResponse(options, user, res);
 });
 
 site.app.get('/clustertemplates', function (req, res) {
