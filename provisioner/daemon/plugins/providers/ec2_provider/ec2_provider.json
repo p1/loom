@@ -44,6 +44,7 @@
           "type": "text",
           "tip": "Full path and file name to your AWS SSH private key file"
         }
+      },
       "required": [
         [ "aws_access_key_id", "aws_secret_access_key", "aws_ssh_key_id", "region", "identity_file" ]
       ]
