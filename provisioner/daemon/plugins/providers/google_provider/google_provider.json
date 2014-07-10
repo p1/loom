@@ -1,0 +1,77 @@
+{
+  "name": "google",
+  "description": "Google cloud provider",
+  "providertypes": [ "google" ],
+  "google": {
+    "name": "google",
+    "classname": "GoogleProvider",
+    "parameters": { 
+      "admin": {
+        "fields": {
+          "gce_zone": {
+            "label": "Zone",
+            "type": "select",
+            "options": [ "asia-east1-a", "asia-east1-b", "europe-west1-a", "europe-west1-b", "us-central1-a", "us-central1-b" ]
+            "default": "us-central1-a",
+            "override": true,
+            "tip": "GCE Zone"
+          },
+          ssh_user": {
+
+
+
+
+
+
+
+
+
+
+          "google_ssh_key_id" : {
+            "label": "Key name",
+            "type": "text",
+            "tip": "Your Google SSH public key name"
+          },
+          "identity_file" : {
+            "label": "Key file",
+            "type": "text",
+            "tip": "Path to your Google SSH private key file"
+          }
+        },
+        "required": [
+          [
+            "google_username",
+            "google_password",
+            "google_tenant",
+            "google_auth_url",
+            "google_ssh_key_id",
+            "identity_file"
+          ]
+        ]
+      },
+      "user": {
+        "fields": {
+          "security_groups": {
+            "type": "text",
+            "label": "Security Group",
+            "default": "default",
+            "tip": "Google security groups (comma separated)"
+          },
+          "availability_zone": {
+            "type": "text",
+            "label": "Availability Zone",
+            "tip": "Google Availability Zone"
+          },
+          "floating_ip": {
+            "type": "checkbox",
+            "label": "Floating IP",
+            "tip": "Request a floating IP address for each node"
+          }
+        },
+        "required": [
+          [ "security_groups" ]
+        ]
+      }
+    }
+  }
+}
